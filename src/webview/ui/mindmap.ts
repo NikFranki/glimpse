@@ -91,6 +91,12 @@ export function buildMarkmapMarkdown(analysis: ModuleAnalysis): string {
         if (comp.jsx) {
           lines.push(`    - JSX: ${comp.jsx}`);
         }
+        if (comp.behaviors && comp.behaviors.length > 0) {
+          lines.push(`    - 交互逻辑`);
+          for (const b of comp.behaviors) {
+            lines.push(`      - ${b}`);
+          }
+        }
       }
     }
   }

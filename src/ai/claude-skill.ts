@@ -22,7 +22,7 @@ export class ClaudeSkill implements AISkill {
   }
 }
 
-export function spawnAndCollect(cmd: string, args: string[], timeoutMs = 60_000): Promise<string> {
+export function spawnAndCollect(cmd: string, args: string[], timeoutMs = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 

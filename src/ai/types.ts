@@ -12,6 +12,7 @@ export interface AIRawOutputComponent {
   state?: string[];
   methods?: string[];
   jsx?: string;
+  behaviors?: string[];
 }
 
 export interface AIRawOutput {

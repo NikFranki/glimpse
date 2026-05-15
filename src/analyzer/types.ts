@@ -11,6 +11,11 @@ export interface FileInfo {
   type: FileType;
   exports: string[];
   imports: ImportRef[];
+  // Static deep analysis — populated by react/vue analyzer when available
+  propsFields?: string[];    // from Props interface / type definition
+  stateVars?: string[];      // from useState() / Vue data()
+  functionNames?: string[];  // camelCase function/method declarations
+  jsxElements?: string[];    // uppercase component tags used in JSX/template
 }
 
 export type ExportKind = 'component' | 'hook' | 'util' | 'type' | 'unknown';
@@ -36,13 +41,14 @@ export interface ModuleSkeleton {
 }
 
 export interface DataFlowComponent {
-  name: string;        // relative file path, e.g. "list/index.tsx"
-  usage: string;       // 用途
-  deps?: string[];     // 引入的关键依赖
-  props?: string[];    // 定义的属性
-  state?: string[];    // 状态变量
-  methods?: string[];  // 方法列表
-  jsx?: string;        // JSX/template 功能描述
+  name: string;          // relative file path, e.g. "list/index.tsx"
+  usage: string;         // 用途
+  deps?: string[];       // 引入的关键依赖
+  props?: string[];      // 定义的属性
+  state?: string[];      // 状态变量
+  methods?: string[];    // 方法列表
+  jsx?: string;          // JSX/template 功能描述
+  behaviors?: string[];  // 交互因果链：触发 → 处理 → 结果
 }
 
 export interface DataFlowFeature {
