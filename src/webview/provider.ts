@@ -99,9 +99,18 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
       display: none; align-items: center; gap: 10px; color: var(--vscode-descriptionForeground);
     }
     #state-error {
-      display: none; color: var(--vscode-errorForeground);
+      display: none; flex-direction: column; gap: 10px;
+      padding: 16px; color: var(--vscode-errorForeground);
       border-left: 3px solid var(--vscode-errorForeground);
     }
+    #error-message { word-break: break-word; font-size: 12px; }
+    #retry-btn {
+      align-self: flex-start; padding: 4px 10px;
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none; border-radius: 2px; cursor: pointer; font-size: 12px;
+    }
+    #retry-btn:hover { background: var(--vscode-button-hoverBackground); }
     #state-mindmap { display: none; flex: 1; overflow: hidden; }
 
     /* ── spinner ── */
@@ -134,7 +143,10 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
     <span id="loading-path" style="word-break:break-all;font-size:11px;"></span>
   </div>
 
-  <div id="state-error"></div>
+  <div id="state-error">
+    <span id="error-message"></span>
+    <button id="retry-btn">重试</button>
+  </div>
 
   <div id="state-mindmap">
     <svg id="mindmap"></svg>
@@ -147,22 +159,31 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
 
-    const stateWelcome = document.getElementById('state-welcome');
-    const stateLoading = document.getElementById('state-loading');
-    const stateError   = document.getElementById('state-error');
-    const stateMindmap = document.getElementById('state-mindmap');
-    const loadingPath  = document.getElementById('loading-path');
-    const svgEl        = document.getElementById('mindmap');
+    const stateWelcome  = document.getElementById('state-welcome');
+    const stateLoading  = document.getElementById('state-loading');
+    const stateError    = document.getElementById('state-error');
+    const stateMindmap  = document.getElementById('state-mindmap');
+    const loadingPath   = document.getElementById('loading-path');
+    const errorMessage  = document.getElementById('error-message');
+    const retryBtn      = document.getElementById('retry-btn');
+    const svgEl         = document.getElementById('mindmap');
 
-    let mm = null; // Markmap instance
+    let mm = null;               // Markmap instance
+    let currentModulePath = '';  // last analyzed folder, used by retry
 
+    // ── flex containers need display:flex, others display:block ──
+    const FLEX_STATES = new Set([stateWelcome, stateLoading, stateError, stateMindmap]);
     function showOnly(el) {
-      [stateWelcome, stateLoading, stateError, stateMindmap].forEach(e => {
-        e.style.display = 'none';
-      });
-      el.style.display = el === stateLoading || el === stateWelcome ? 'flex' : 'block';
-      if (el === stateMindmap) el.style.display = 'flex';
+      FLEX_STATES.forEach(e => { e.style.display = 'none'; });
+      el.style.display = 'flex';
     }
+
+    // ── retry button ───────────────────────────────────────────
+    retryBtn.addEventListener('click', () => {
+      if (currentModulePath) {
+        vscode.postMessage({ type: 'drillDown', folderPath: currentModulePath });
+      }
+    });
 
     async function renderMindmap(markdown) {
       // markmap-autoloader registers window.markmap with Transformer + Markmap
@@ -194,14 +215,16 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
       const msg = event.data;
 
       if (msg.type === 'loading') {
+        currentModulePath = msg.modulePath;
         showOnly(stateLoading);
         loadingPath.textContent = msg.modulePath;
         return;
       }
 
       if (msg.type === 'error') {
+        if (msg.modulePath) currentModulePath = msg.modulePath;
         showOnly(stateError);
-        stateError.textContent = '⚠ ' + msg.message;
+        errorMessage.textContent = '⚠ ' + msg.message;
         return;
       }
 

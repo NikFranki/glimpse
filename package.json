@@ -44,6 +44,11 @@
         "glimpse.aiProvider": {
           "type": "string",
           "enum": ["auto", "claude", "codex"],
+          "enumDescriptions": [
+            "自动检测：优先 claude，其次 codex",
+            "强制使用 claude CLI（需已安装 Claude Code）",
+            "强制使用 codex CLI（需已安装 OpenAI Codex）"
+          ],
           "default": "auto",
           "description": "指定使用的 AI CLI（auto 会自动检测）"
         }
