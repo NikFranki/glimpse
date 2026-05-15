@@ -1,5 +1,5 @@
 import { ModuleSkeleton } from '../analyzer/types';
-import { AIRawOutput } from './types';
+import { AIRawOutput, AIRawOutputComponent } from './types';
 
 const MAX_FILES = 30;
 const MAX_EXPORTS_PER_FILE = 8;
@@ -9,8 +9,23 @@ export function buildPrompt(skeleton: ModuleSkeleton): string {
     '根据以下前端模块骨架，仅返回 JSON（不要 markdown 代码块，不要额外文字）：',
     '',
     '{',
-    '  "responsibility": "一句话描述模块的核心职责",',
-    '  "dataFlow": [{ "from": "数据来源", "through": "处理环节", "to": "最终去向" }],',
+    '  "responsibilities": ["职责要点1", "职责要点2"],',
+    '  "dataFlow": [',
+    '    {',
+    '      "feature": "功能域名称（如：配置列表、变更日志）",',
+    '      "components": [',
+    '        {',
+    '          "name": "相对文件路径（如 list/index.tsx）",',
+    '          "usage": "该文件的用途",',
+    '          "deps": ["关键外部依赖"],',
+    '          "props": ["关键 prop 名"],',
+    '          "state": ["关键 state 变量"],',
+    '          "methods": ["关键方法名"],',
+    '          "jsx": "界面功能简述"',
+    '        }',
+    '      ]',
+    '    }',
+    '  ],',
     '  "exportDescriptions": { "<导出名>": "一句话描述该导出的功能" }',
     '}',
     '',
@@ -106,18 +121,46 @@ function tryParse(text: string): unknown {
   }
 }
 
+function toStrArr(v: unknown): string[] {
+  return Array.isArray(v) ? (v as unknown[]).map((x) => String(x)) : [];
+}
+
+function validateComponent(c: unknown): AIRawOutputComponent {
+  const comp = (typeof c === 'object' && c !== null ? c : {}) as Record<string, unknown>;
+  return {
+    name: String(comp['name'] ?? ''),
+    usage: String(comp['usage'] ?? ''),
+    deps: toStrArr(comp['deps']),
+    props: toStrArr(comp['props']),
+    state: toStrArr(comp['state']),
+    methods: toStrArr(comp['methods']),
+    jsx: typeof comp['jsx'] === 'string' ? comp['jsx'] : undefined,
+  };
+}
+
 function validate(data: unknown): AIRawOutput {
   if (typeof data !== 'object' || data === null) {
     throw new Error('AI 输出不是对象');
   }
   const obj = data as Record<string, unknown>;
 
+  // responsibilities: new format; fall back if model returns old "responsibility" string
+  const responsibilities: string[] = Array.isArray(obj['responsibilities'])
+    ? toStrArr(obj['responsibilities'])
+    : typeof obj['responsibility'] === 'string'
+    ? [obj['responsibility']]
+    : ['（未能解析）'];
+
   const dataFlow = Array.isArray(obj['dataFlow'])
-    ? (obj['dataFlow'] as Array<Record<string, unknown>>).map((item) => ({
-        from: String(item['from'] ?? ''),
-        through: String(item['through'] ?? ''),
-        to: String(item['to'] ?? ''),
-      }))
+    ? (obj['dataFlow'] as unknown[]).map((item) => {
+        const f = (typeof item === 'object' && item !== null ? item : {}) as Record<string, unknown>;
+        return {
+          feature: String(f['feature'] ?? ''),
+          components: Array.isArray(f['components'])
+            ? (f['components'] as unknown[]).map(validateComponent)
+            : [],
+        };
+      })
     : [];
 
   const exportDescriptions: Record<string, string> =
@@ -130,10 +173,5 @@ function validate(data: unknown): AIRawOutput {
         )
       : {};
 
-  return {
-    responsibility:
-      typeof obj['responsibility'] === 'string' ? obj['responsibility'] : '（未能解析）',
-    dataFlow,
-    exportDescriptions,
-  };
+  return { responsibilities, dataFlow, exportDescriptions };
 }

@@ -38,7 +38,7 @@ export async function analyzeModuleCommand(
           analysis = {
             ...skeleton,
             ai: {
-              responsibility: aiOutput.responsibility,
+              responsibilities: aiOutput.responsibilities,
               dataFlow: aiOutput.dataFlow,
             },
             exportDescriptions: aiOutput.exportDescriptions,
@@ -53,7 +53,7 @@ export async function analyzeModuleCommand(
           }
           analysis = {
             ...skeleton,
-            ai: { responsibility: '（未检测到 AI CLI，仅显示静态分析）', dataFlow: [] },
+            ai: { responsibilities: ['（未检测到 AI CLI，仅显示静态分析）'], dataFlow: [] },
             exportDescriptions: {},
           };
         }

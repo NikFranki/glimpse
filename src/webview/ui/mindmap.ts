@@ -12,7 +12,10 @@ export function buildMarkmapMarkdown(analysis: ModuleAnalysis): string {
   const lines: string[] = [`# ${moduleName}`];
 
   // ── 模块职责 ──────────────────────────────────────────────
-  lines.push('', '## 模块职责', '', `- ${analysis.ai.responsibility}`);
+  lines.push('', '## 模块职责');
+  for (const r of analysis.ai.responsibilities) {
+    lines.push(`- ${r}`);
+  }
 
   // ── 对外暴露 ──────────────────────────────────────────────
   if (analysis.publicExports.length > 0) {
@@ -68,11 +71,27 @@ export function buildMarkmapMarkdown(analysis: ModuleAnalysis): string {
   // ── 数据流 ────────────────────────────────────────────────
   if (analysis.ai.dataFlow.length > 0) {
     lines.push('', '## 数据流');
-    for (const flow of analysis.ai.dataFlow) {
-      const from = linkifyPaths(flow.from, analysis.modulePath);
-      const through = linkifyPaths(flow.through, analysis.modulePath);
-      const to = linkifyPaths(flow.to, analysis.modulePath);
-      lines.push(`- ${from} → ${through} → ${to}`);
+    for (const feature of analysis.ai.dataFlow) {
+      lines.push(`- ${feature.feature}`);
+      for (const comp of feature.components) {
+        const nameLink = linkifyPaths(comp.name, analysis.modulePath);
+        lines.push(`  - ${nameLink} — ${comp.usage}`);
+        if (comp.deps && comp.deps.length > 0) {
+          lines.push(`    - 依赖: ${comp.deps.join('、')}`);
+        }
+        if (comp.props && comp.props.length > 0) {
+          lines.push(`    - Props: ${comp.props.join('、')}`);
+        }
+        if (comp.state && comp.state.length > 0) {
+          lines.push(`    - State: ${comp.state.join('、')}`);
+        }
+        if (comp.methods && comp.methods.length > 0) {
+          lines.push(`    - 方法: ${comp.methods.join('、')}`);
+        }
+        if (comp.jsx) {
+          lines.push(`    - JSX: ${comp.jsx}`);
+        }
+      }
     }
   }
 

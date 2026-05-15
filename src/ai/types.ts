@@ -4,8 +4,18 @@ export interface AISkill {
   run(prompt: string): Promise<string>;
 }
 
+export interface AIRawOutputComponent {
+  name: string;
+  usage: string;
+  deps?: string[];
+  props?: string[];
+  state?: string[];
+  methods?: string[];
+  jsx?: string;
+}
+
 export interface AIRawOutput {
-  responsibility: string;
-  dataFlow: Array<{ from: string; through: string; to: string }>;
+  responsibilities: string[];
+  dataFlow: Array<{ feature: string; components: AIRawOutputComponent[] }>;
   exportDescriptions: Record<string, string>;
 }

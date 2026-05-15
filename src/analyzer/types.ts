@@ -35,9 +35,24 @@ export interface ModuleSkeleton {
   mfDeps: MFDep[];
 }
 
+export interface DataFlowComponent {
+  name: string;        // relative file path, e.g. "list/index.tsx"
+  usage: string;       // 用途
+  deps?: string[];     // 引入的关键依赖
+  props?: string[];    // 定义的属性
+  state?: string[];    // 状态变量
+  methods?: string[];  // 方法列表
+  jsx?: string;        // JSX/template 功能描述
+}
+
+export interface DataFlowFeature {
+  feature: string;                  // 功能域, e.g. "配置列表"
+  components: DataFlowComponent[];
+}
+
 export interface AIOutput {
-  responsibility: string;
-  dataFlow: Array<{ from: string; through: string; to: string }>;
+  responsibilities: string[];    // 职责要点列表，每条独立节点
+  dataFlow: DataFlowFeature[];   // 按功能域分组的组件解析
 }
 
 export interface ModuleAnalysis extends ModuleSkeleton {
