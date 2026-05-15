@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from './messages';
+import { buildMarkmapMarkdown } from './ui/mindmap';
 
 export class GlimpseViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'glimpse.moduleView';
 
   private _view?: vscode.WebviewView;
-  // Queue messages sent before the view is resolved
   private _pendingMessages: ExtensionToWebviewMessage[] = [];
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
@@ -34,16 +34,15 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    // Flush any messages queued before view was ready
     for (const msg of this._pendingMessages) {
-      webviewView.webview.postMessage(msg);
+      this._send(msg);
     }
     this._pendingMessages = [];
   }
 
   postMessage(message: ExtensionToWebviewMessage): void {
     if (this._view) {
-      this._view.webview.postMessage(message);
+      this._send(message);
     } else {
       this._pendingMessages.push(message);
     }
@@ -53,83 +52,176 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
     return vscode.commands.executeCommand(`${GlimpseViewProvider.viewId}.focus`);
   }
 
+  /** Enrich data messages with pre-built markdown before forwarding to the webview. */
+  private _send(message: ExtensionToWebviewMessage): void {
+    if (message.type === 'data') {
+      const markdown = buildMarkmapMarkdown(message.analysis);
+      this._view?.webview.postMessage({ ...message, markdown });
+    } else {
+      this._view?.webview.postMessage(message);
+    }
+  }
+
   private _getHtml(): string {
+    const nonce = getNonce();
     return /* html */ `<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none';
+             script-src 'nonce-${nonce}' https://cdn.jsdelivr.net;
+             style-src 'unsafe-inline' https://cdn.jsdelivr.net;
+             img-src data: https:;
+             font-src data: https://cdn.jsdelivr.net;" />
   <title>Glimpse</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
-      padding: 16px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
       font-family: var(--vscode-font-family);
       font-size: var(--vscode-font-size);
       color: var(--vscode-foreground);
       background: var(--vscode-sideBar-background);
     }
-    #welcome {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-      margin-top: 40px;
-      opacity: 0.7;
-      text-align: center;
+
+    /* ── states ── */
+    #state-welcome, #state-loading, #state-error { padding: 24px 16px; }
+    #state-welcome {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 10px;
+      margin-top: 40px; opacity: 0.6; text-align: center;
     }
-    #loading { display: none; }
-    #error   { display: none; color: var(--vscode-errorForeground); }
-    #mindmap { display: none; }
+    #state-loading {
+      display: none; align-items: center; gap: 10px; color: var(--vscode-descriptionForeground);
+    }
+    #state-error {
+      display: none; color: var(--vscode-errorForeground);
+      border-left: 3px solid var(--vscode-errorForeground);
+    }
+    #state-mindmap { display: none; flex: 1; overflow: hidden; }
+
+    /* ── spinner ── */
     .spinner {
-      width: 24px; height: 24px;
-      border: 3px solid var(--vscode-foreground);
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      flex-shrink: 0; width: 16px; height: 16px;
+      border: 2px solid var(--vscode-descriptionForeground);
+      border-top-color: transparent; border-radius: 50%;
+      animation: spin .7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── mindmap svg ── */
+    #mindmap {
+      width: 100%; height: 100%;
+      /* invert link colors to match VSCode theme */
+    }
+    /* markmap node text */
+    .markmap-foreign a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+    .markmap-foreign a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div id="welcome">
-    <p>右键文件夹 → <strong>Glimpse: 分析此模块</strong></p>
+  <div id="state-welcome">
+    <div>💡</div>
+    <p>右键文件夹 →<br><strong>Glimpse: 分析此模块</strong></p>
   </div>
-  <div id="loading">
+
+  <div id="state-loading">
     <div class="spinner"></div>
-    <p id="loading-path"></p>
+    <span id="loading-path" style="word-break:break-all;font-size:11px;"></span>
   </div>
-  <div id="error"></div>
-  <div id="mindmap"></div>
 
-  <script>
+  <div id="state-error"></div>
+
+  <div id="state-mindmap">
+    <svg id="mindmap"></svg>
+  </div>
+
+  <!-- markmap autoloader: bundles d3 + markmap-lib + markmap-view -->
+  <script nonce="${nonce}"
+    src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.17"></script>
+
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    const welcome = document.getElementById('welcome');
-    const loading = document.getElementById('loading');
-    const loadingPath = document.getElementById('loading-path');
-    const errorDiv = document.getElementById('error');
-    const mindmap = document.getElementById('mindmap');
 
-    window.addEventListener('message', (event) => {
+    const stateWelcome = document.getElementById('state-welcome');
+    const stateLoading = document.getElementById('state-loading');
+    const stateError   = document.getElementById('state-error');
+    const stateMindmap = document.getElementById('state-mindmap');
+    const loadingPath  = document.getElementById('loading-path');
+    const svgEl        = document.getElementById('mindmap');
+
+    let mm = null; // Markmap instance
+
+    function showOnly(el) {
+      [stateWelcome, stateLoading, stateError, stateMindmap].forEach(e => {
+        e.style.display = 'none';
+      });
+      el.style.display = el === stateLoading || el === stateWelcome ? 'flex' : 'block';
+      if (el === stateMindmap) el.style.display = 'flex';
+    }
+
+    async function renderMindmap(markdown) {
+      // markmap-autoloader registers window.markmap with Transformer + Markmap
+      const { Transformer, Markmap } = window.markmap;
+      const transformer = new Transformer();
+      const { root } = transformer.transform(markdown);
+
+      if (!mm) {
+        mm = Markmap.create(svgEl, { zoom: true, pan: true });
+      }
+      await mm.setData(root);
+      mm.fit();
+    }
+
+    // ── node click → open file ─────────────────────────────
+    svgEl.addEventListener('click', (e) => {
+      const a = e.target.closest('a');
+      if (!a) return;
+      const href = a.getAttribute('href') ?? '';
+      if (href.startsWith('glimpse-file:')) {
+        e.preventDefault();
+        const filePath = decodeURIComponent(href.slice('glimpse-file:'.length));
+        vscode.postMessage({ type: 'openFile', filePath });
+      }
+    });
+
+    // ── messages from extension ────────────────────────────
+    window.addEventListener('message', async (event) => {
       const msg = event.data;
-      welcome.style.display = 'none';
-      loading.style.display = 'none';
-      errorDiv.style.display = 'none';
-      mindmap.style.display = 'none';
 
       if (msg.type === 'loading') {
-        loading.style.display = 'flex';
+        showOnly(stateLoading);
         loadingPath.textContent = msg.modulePath;
-      } else if (msg.type === 'error') {
-        errorDiv.style.display = 'block';
-        errorDiv.textContent = msg.message;
-      } else if (msg.type === 'data') {
-        mindmap.style.display = 'block';
-        mindmap.textContent = JSON.stringify(msg.analysis, null, 2);
+        return;
+      }
+
+      if (msg.type === 'error') {
+        showOnly(stateError);
+        stateError.textContent = '⚠ ' + msg.message;
+        return;
+      }
+
+      if (msg.type === 'data') {
+        showOnly(stateMindmap);
+        try {
+          await renderMindmap(msg.markdown);
+        } catch (err) {
+          showOnly(stateError);
+          stateError.textContent = '渲染失败: ' + (err && err.message || String(err));
+        }
       }
     });
   </script>
 </body>
 </html>`;
   }
+}
+
+function getNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
