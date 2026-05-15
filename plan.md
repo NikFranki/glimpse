@@ -113,11 +113,11 @@ ui/mindmap.ts → markmap 渲染四维度节点
 
 ### Phase 0 — 项目脚手架
 
-- [ ] **0.1** 初始化 VSCode 插件项目（`yo code` 或手动 package.json）
-- [ ] **0.2** 配置 TypeScript（tsconfig.json，target ES2020，strict）
-- [ ] **0.3** 配置 .vscodeignore、.gitignore
-- [ ] **0.4** 安装基础依赖：`ts-morph`、`vue-template-compiler`、`@vue/component-compiler-utils`
-- [ ] **0.5** git init + 初始提交
+- [x] **0.1** 初始化 VSCode 插件项目（`yo code` 或手动 package.json）
+- [x] **0.2** 配置 TypeScript（tsconfig.json，target ES2020，strict）
+- [x] **0.3** 配置 .vscodeignore、.gitignore
+- [x] **0.4** 安装基础依赖：`ts-morph`、`vue-template-compiler`、`@vue/component-compiler-utils`
+- [x] **0.5** git init + 初始提交
 
 ### Phase 1 — 插件入口 & 命令注册
 
