@@ -17,14 +17,20 @@ export function buildMarkmapMarkdown(analysis: ModuleAnalysis): string {
     lines.push(`- ${r}`);
   }
 
-  // ── 对外暴露 ──────────────────────────────────────────────
+  // ── 对外暴露（按文件聚合）────────────────────────────────
   if (analysis.publicExports.length > 0) {
     lines.push('', '## 对外暴露');
+    const byFile = new Map<string, typeof analysis.publicExports>();
     for (const e of analysis.publicExports) {
-      const desc = analysis.exportDescriptions[e.name] ?? '';
-      const encoded = encodeURIComponent(e.filePath);
-      const label = desc ? `${e.name} — ${desc}` : e.name;
-      lines.push(`- [${label} *(${e.kind})*](glimpse-file:${encoded})`);
+      const group = byFile.get(e.filePath) ?? [];
+      group.push(e);
+      byFile.set(e.filePath, group);
+    }
+    for (const [filePath, exports] of byFile) {
+      const fileName = filePath.split('/').pop() ?? filePath;
+      const kind = exports[0].kind;
+      const encoded = encodeURIComponent(filePath);
+      lines.push(`- [${fileName} *(${kind})*](glimpse-file:${encoded})`);
     }
   }
 

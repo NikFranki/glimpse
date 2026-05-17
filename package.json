@@ -49,7 +49,7 @@
         "glimpse.companyScopes": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["@scfe", "@spx", "@ssc", "@sc/", "ssc-", "sc-cli"],
+          "default": ["@scfe", "@spx", "@ssc", "@sc/", "ssc-", "sc-cli", "react-pro-components"],
           "description": "包名前缀列表，匹配的包视为公司内部包，在思维导图中单独分组展示"
         },
         "glimpse.aiProvider": {

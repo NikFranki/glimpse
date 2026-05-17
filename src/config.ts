@@ -8,7 +8,7 @@ export function getAIProvider(): AIProvider {
   );
 }
 
-const DEFAULT_COMPANY_SCOPES = ['@scfe', '@spx', '@ssc', '@sc/', 'ssc-', 'sc-cli'];
+const DEFAULT_COMPANY_SCOPES = ['@scfe', '@spx', '@ssc', '@sc/', 'ssc-', 'sc-cli', 'react-pro-components'];
 
 export function getCompanyScopes(): string[] {
   return (

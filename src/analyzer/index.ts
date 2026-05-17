@@ -127,27 +127,43 @@ function extractPublicExports(
 ): ExportInfo[] {
   const indexRelPaths = ['index.ts', 'index.tsx', 'index.js'];
   const indexFile = files.find((f) => indexRelPaths.includes(f.relativePath));
-  if (!indexFile) return [];
 
-  const indexAbsPath = path.join(modulePath, indexFile.relativePath);
-  const sf = project.getSourceFile(indexAbsPath);
-
-  if (sf) {
-    // Use ts-morph to resolve re-exports to their actual declaration file
-    const result: ExportInfo[] = [];
-    for (const [name, decls] of sf.getExportedDeclarations()) {
-      const declFile = decls[0]?.getSourceFile().getFilePath() ?? indexAbsPath;
-      result.push({ name, kind: guessExportKind(name, decls[0]), filePath: declFile });
+  if (indexFile) {
+    const indexAbsPath = path.join(modulePath, indexFile.relativePath);
+    const sf = project.getSourceFile(indexAbsPath);
+    if (sf) {
+      const result: ExportInfo[] = [];
+      for (const [name, decls] of sf.getExportedDeclarations()) {
+        const declFile = decls[0]?.getSourceFile().getFilePath() ?? indexAbsPath;
+        result.push({ name, kind: guessExportKind(name, decls[0]), filePath: declFile });
+      }
+      return result;
     }
-    return result;
+    return indexFile.exports.map((name) => ({
+      name,
+      kind: guessExportKind(name),
+      filePath: indexAbsPath,
+    }));
   }
 
-  // Fallback: all point to index file
-  return indexFile.exports.map((name) => ({
-    name,
-    kind: guessExportKind(name),
-    filePath: indexAbsPath,
-  }));
+  // No index file — collect exports from root-level files only
+  const rootFiles = files.filter((f) => !f.relativePath.includes('/'));
+  const result: ExportInfo[] = [];
+  for (const f of rootFiles) {
+    const absPath = path.join(modulePath, f.relativePath);
+    const sf = project.getSourceFile(absPath);
+    if (sf) {
+      for (const [name, decls] of sf.getExportedDeclarations()) {
+        const declFile = decls[0]?.getSourceFile().getFilePath() ?? absPath;
+        result.push({ name, kind: guessExportKind(name, decls[0]), filePath: declFile });
+      }
+    } else {
+      for (const name of f.exports) {
+        result.push({ name, kind: guessExportKind(name), filePath: absPath });
+      }
+    }
+  }
+  return result;
 }
 
 function guessExportKind(name: string, decl?: Node): ExportInfo['kind'] {
