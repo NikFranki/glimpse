@@ -8,10 +8,11 @@ import { buildPrompt, parseAIOutput } from '../ai/prompt-builder';
 import { getAIProvider, getClaudeModel, getCompanyScopes } from '../config';
 import { ModuleAnalysis, ModuleSkeleton } from '../analyzer/types';
 
-function staticFallback(skeleton: ModuleSkeleton): ModuleAnalysis {
+function staticFallback(skeleton: ModuleSkeleton, reason?: string): ModuleAnalysis {
+  const label = reason ? `（AI 失败：${reason}）` : '（仅静态分析，AI 未运行）';
   return {
     ...skeleton,
-    ai: { responsibilities: ['（仅静态分析，AI 未运行）'], dataFlow: [] },
+    ai: { responsibilities: [label], dataFlow: [] },
     exportDescriptions: {},
   };
 }
@@ -68,7 +69,7 @@ export async function analyzeModuleCommand(
             const aiMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
             provider.postMessage({ type: 'progress', step: 'AI 分析失败，使用静态分析兜底' });
             vscode.window.showWarningMessage(`Glimpse: AI 分析失败（${aiMsg.slice(0, 120)}）`);
-            analysis = staticFallback(skeleton);
+            analysis = staticFallback(skeleton, aiMsg.slice(0, 200));
           }
         } else {
           const picked = await vscode.window.showWarningMessage(
@@ -78,7 +79,7 @@ export async function analyzeModuleCommand(
           if (picked === '打开设置') {
             vscode.commands.executeCommand('workbench.action.openSettings', 'glimpse.aiProvider');
           }
-          analysis = staticFallback(skeleton);
+          analysis = staticFallback(skeleton, '未检测到 AI CLI');
         }
 
         progress.report({ message: '渲染中…' });

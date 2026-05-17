@@ -1,6 +1,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import { AISkill } from './types';
 import { spawnAndCollect } from './claude-skill';
 
@@ -31,23 +34,20 @@ export class CodexSkill implements AISkill {
     return false;
   }
 
-  run(prompt: string): Promise<string> {
+  async run(prompt: string): Promise<string> {
     const bin = this.binPath ?? 'codex';
-    // `exec` runs non-interactively; `--ephemeral` skips session persistence;
-    // `--color never` strips ANSI codes; `-` reads prompt from stdin.
-    return spawnAndCollect(bin, ['exec', '--ephemeral', '--color', 'never', '-'], prompt)
-      .then(extractModelResponse);
+    // --output-last-message writes only the model's final response to a temp
+    // file, bypassing the noisy header / hook / token lines in stdout.
+    const tmpFile = path.join(os.tmpdir(), `codex-${crypto.randomBytes(6).toString('hex')}.txt`);
+    try {
+      await spawnAndCollect(
+        bin,
+        ['exec', '--ephemeral', '--color', 'never', '--skip-git-repo-check', '--output-last-message', tmpFile, '-'],
+        prompt
+      );
+      return fs.readFileSync(tmpFile, 'utf8').trim();
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    }
   }
-}
-
-// codex exec stdout format:
-//   <header block>
-//   user
-//   <prompt>
-//   codex
-//   <model response>
-// Extract everything after the first standalone "codex" line.
-function extractModelResponse(raw: string): string {
-  const match = raw.match(/^codex\s*\n([\s\S]*)/m);
-  return match ? match[1].trim() : raw;
 }
