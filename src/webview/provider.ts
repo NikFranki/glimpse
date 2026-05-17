@@ -179,9 +179,9 @@ export class GlimpseViewProvider implements vscode.WebviewViewProvider {
     /* ── mindmap svg ── */
     #mindmap {
       width: 100%; height: 100%;
-      /* invert link colors to match VSCode theme */
     }
-    /* markmap node text */
+    /* markmap node text — force visible against dark backgrounds */
+    .markmap-foreign { color: var(--vscode-foreground, #cccccc); }
     .markmap-foreign a { color: var(--vscode-textLink-foreground); text-decoration: none; }
     .markmap-foreign a:hover { text-decoration: underline; }
   </style>

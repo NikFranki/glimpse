@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Project, SourceFile } from 'ts-morph';
+import { Node, Project, SourceFile, SyntaxKind } from 'ts-morph';
 import { analyzeReactFile } from './react-analyzer';
 import { analyzeVueFile } from './vue-analyzer';
 import { findMFConfig } from './mf-analyzer';
@@ -106,7 +106,7 @@ function extractSingleFileExports(
     const result: ExportInfo[] = [];
     for (const [name, decls] of sf.getExportedDeclarations()) {
       const declFile = decls[0]?.getSourceFile().getFilePath() ?? filePath;
-      result.push({ name, kind: guessExportKind(name), filePath: declFile });
+      result.push({ name, kind: guessExportKind(name, decls[0]), filePath: declFile });
     }
     return result;
   }
@@ -137,7 +137,7 @@ function extractPublicExports(
     const result: ExportInfo[] = [];
     for (const [name, decls] of sf.getExportedDeclarations()) {
       const declFile = decls[0]?.getSourceFile().getFilePath() ?? indexAbsPath;
-      result.push({ name, kind: guessExportKind(name), filePath: declFile });
+      result.push({ name, kind: guessExportKind(name, decls[0]), filePath: declFile });
     }
     return result;
   }
@@ -150,12 +150,33 @@ function extractPublicExports(
   }));
 }
 
-function guessExportKind(name: string): ExportInfo['kind'] {
+function guessExportKind(name: string, decl?: Node): ExportInfo['kind'] {
+  if (name === 'default') {
+    return guessDefaultExportKind(decl);
+  }
   if (/^use[A-Z]/.test(name)) return 'hook';
-  if (/^[A-Z]/.test(name)) return 'component';
   if (/(?:Type|Interface|Props|State)$/.test(name)) return 'type';
+  if (/^[A-Z]/.test(name)) return 'component';
   if (/^[a-z]/.test(name)) return 'util';
   return 'unknown';
+}
+
+function guessDefaultExportKind(decl?: Node): ExportInfo['kind'] {
+  if (!decl) return 'component';
+  const kind = decl.getKind();
+  if (
+    kind === SyntaxKind.InterfaceDeclaration ||
+    kind === SyntaxKind.TypeAliasDeclaration
+  ) return 'type';
+  if (kind === SyntaxKind.ClassDeclaration) return 'component';
+  if (kind === SyntaxKind.FunctionDeclaration || kind === SyntaxKind.ArrowFunction) {
+    const filePath = decl.getSourceFile().getFilePath();
+    if (/\.(tsx|vue)$/.test(filePath)) return 'component';
+    const name = (decl as { getName?: () => string | undefined }).getName?.() ?? '';
+    if (/^use[A-Z]/.test(name)) return 'hook';
+    return 'component';
+  }
+  return 'component';
 }
 
 function collectDeps(
