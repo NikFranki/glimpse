@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from './messages';
 import { buildMarkmapMarkdown } from './ui/mindmap';
+import { buildFeatureGraph } from './ui/feature-graph';
 
 /**
  * Manages a singleton WebviewPanel in the main editor area.
@@ -90,7 +91,8 @@ export class GlimpsePanelManager {
     if (message.type === 'data') {
       this._lastDataMessage = message;
       const markdown = buildMarkmapMarkdown(message.analysis);
-      this._panel?.webview.postMessage({ ...message, markdown });
+      const graph = buildFeatureGraph(message.analysis);
+      this._panel?.webview.postMessage({ ...message, markdown, graph });
     } else {
       this._panel?.webview.postMessage(message);
     }
@@ -168,11 +170,32 @@ export class GlimpsePanelManager {
       border: none; border-radius: 2px; cursor: pointer; font-size: 12px;
     }
     #retry-btn:hover { background: var(--vscode-button-hoverBackground); }
-    #state-mindmap { display: none; flex: 1; overflow: hidden; position: relative; }
+    #state-mindmap { display: none; flex: 1; overflow: hidden; position: relative; flex-direction: column; }
+
+    /* ── tab bar ── */
+    #tab-bar {
+      display: flex; flex-shrink: 0;
+      border-bottom: 1px solid var(--vscode-widget-border, #444);
+      background: var(--vscode-editor-background);
+      z-index: 5;
+    }
+    .tab-btn {
+      padding: 6px 16px; border: none; border-bottom: 2px solid transparent;
+      background: none; color: var(--vscode-descriptionForeground);
+      cursor: pointer; font-size: 12px; font-family: var(--vscode-font-family);
+    }
+    .tab-btn.active {
+      color: var(--vscode-foreground);
+      border-bottom-color: var(--vscode-focusBorder, #007acc);
+    }
+    .tab-btn:hover:not(.active) { color: var(--vscode-foreground); }
+
+    /* ── content panes ── */
+    #mindmap-pane, #graph-pane { flex: 1; overflow: hidden; min-height: 0; position: relative; }
 
     /* ── toolbar ── */
     #toolbar {
-      position: absolute; top: 6px; right: 6px; z-index: 10;
+      position: absolute; top: 38px; right: 6px; z-index: 10;
       display: flex; flex-direction: column; gap: 3px;
     }
     .tb-btn {
@@ -198,12 +221,16 @@ export class GlimpsePanelManager {
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── mindmap svg ── */
-    #mindmap {
-      width: 100%; height: 100%;
-    }
+    #mindmap, #graph-svg { width: 100%; height: 100%; }
     .markmap-foreign { color: var(--vscode-foreground, #cccccc); }
     .markmap-foreign a { color: var(--vscode-textLink-foreground); text-decoration: none; }
     .markmap-foreign a:hover { text-decoration: underline; }
+
+    /* ── D3 graph styles ── */
+    .g-link { stroke: var(--vscode-descriptionForeground, #888); stroke-opacity: 0.55; fill: none; }
+    .g-label { fill: var(--vscode-descriptionForeground, #999); pointer-events: none; }
+    .g-node-label { fill: var(--vscode-foreground, #ccc); pointer-events: none; }
+    .g-empty { fill: var(--vscode-descriptionForeground, #888); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -226,17 +253,24 @@ export class GlimpsePanelManager {
   </div>
 
   <div id="state-mindmap">
+    <div id="tab-bar">
+      <button class="tab-btn active" data-tab="mindmap">思维导图</button>
+      <button class="tab-btn" data-tab="graph">功能关系图</button>
+    </div>
     <div id="toolbar">
-      <button class="tb-btn" id="btn-fit" title="适应屏幕">⊡</button>
+      <button class="tb-btn" id="btn-fit"        title="适应屏幕">⊡</button>
       <button class="tb-btn" id="btn-zoom-in"    title="放大">＋</button>
       <button class="tb-btn" id="btn-zoom-out"   title="缩小">－</button>
       <div class="tb-sep"></div>
       <button class="tb-btn" id="btn-export-svg" title="导出 SVG" style="font-size:9px;">SVG</button>
       <button class="tb-btn" id="btn-export-png" title="导出 PNG" style="font-size:9px;">PNG</button>
     </div>
-    <svg id="mindmap"></svg>
+    <div id="mindmap-pane"><svg id="mindmap"></svg></div>
+    <div id="graph-pane" style="display:none;"><svg id="graph-svg"></svg></div>
   </div>
 
+  <!-- D3 v7 for the feature relation graph (cdn.jsdelivr.net is whitelisted in CSP) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script nonce="${nonce}"
     src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.17"></script>
 
@@ -258,6 +292,10 @@ export class GlimpsePanelManager {
     let activeStepEl = null;
     let stepTimerInterval = null;
     let stepStartTime = 0;
+    let currentGraph = null;
+    let graphSimulation = null;
+    let graphZoom = null;
+    let activeTab = 'mindmap';
 
     const FLEX_STATES = new Set([stateWelcome, stateLoading, stateError, stateMindmap]);
     function showOnly(el) {
@@ -271,25 +309,50 @@ export class GlimpsePanelManager {
       }
     });
 
+    // ── tab switching ──────────────────────────────────────────
+    function switchTab(tab) {
+      activeTab = tab;
+      document.getElementById('mindmap-pane').style.display = tab === 'mindmap' ? 'flex' : 'none';
+      document.getElementById('graph-pane').style.display   = tab === 'graph'   ? 'flex' : 'none';
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+      });
+      if (tab === 'graph' && currentGraph) renderGraph(currentGraph);
+      if (tab === 'mindmap' && mm) mm.fit();
+    }
+
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
     // ── toolbar ────────────────────────────────────────────────
-    // Cmd/Ctrl + wheel → zoom
+    // Cmd/Ctrl + wheel → zoom (mindmap tab only; D3 handles graph tab natively)
     stateMindmap.addEventListener('wheel', (e) => {
-      if (!mm || (!e.metaKey && !e.ctrlKey)) return;
+      if (activeTab !== 'mindmap' || !mm || (!e.metaKey && !e.ctrlKey)) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       mm.zoom.scaleBy(mm.svg, factor);
     }, { passive: false });
 
-    document.getElementById('btn-fit').addEventListener('click', () => mm?.fit());
+    document.getElementById('btn-fit').addEventListener('click', () => {
+      if (activeTab === 'mindmap') mm?.fit();
+      else fitGraph();
+    });
 
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
-      if (!mm) return;
-      mm.zoom.scaleBy(mm.svg, 1.3);
+      if (activeTab === 'mindmap' && mm) {
+        mm.zoom.scaleBy(mm.svg, 1.3);
+      } else if (activeTab === 'graph' && graphZoom) {
+        graphZoom.scaleBy(d3.select('#graph-svg'), 1.3);
+      }
     });
 
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
-      if (!mm) return;
-      mm.zoom.scaleBy(mm.svg, 1 / 1.3);
+      if (activeTab === 'mindmap' && mm) {
+        mm.zoom.scaleBy(mm.svg, 1 / 1.3);
+      } else if (activeTab === 'graph' && graphZoom) {
+        graphZoom.scaleBy(d3.select('#graph-svg'), 1 / 1.3);
+      }
     });
 
     document.getElementById('btn-export-svg').addEventListener('click', () => {
@@ -338,6 +401,112 @@ export class GlimpsePanelManager {
       };
       img.src = dataUrl;
     });
+
+    // ── D3 feature relation graph ──────────────────────────────
+    function fitGraph() {
+      if (!graphZoom) return;
+      d3.select('#graph-svg').transition().duration(300)
+        .call(graphZoom.transform, d3.zoomIdentity.translate(
+          document.getElementById('graph-pane').clientWidth / 2,
+          document.getElementById('graph-pane').clientHeight / 2
+        ).scale(0.85));
+    }
+
+    function renderGraph(graph) {
+      if (graphSimulation) { graphSimulation.stop(); graphSimulation = null; }
+
+      const svgEl = document.getElementById('graph-svg');
+      while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+
+      if (!graph || !graph.nodes.length) {
+        const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        t.setAttribute('x', '50%'); t.setAttribute('y', '50%');
+        t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'middle');
+        t.setAttribute('class', 'g-empty');
+        t.textContent = '未检测到功能关联关系';
+        svgEl.appendChild(t);
+        return;
+      }
+
+      const W = svgEl.clientWidth  || document.getElementById('graph-pane').clientWidth  || 800;
+      const H = svgEl.clientHeight || document.getElementById('graph-pane').clientHeight || 600;
+
+      const nodes = graph.nodes.map((n) => ({ ...n }));
+      const edges = graph.edges.map((e) => ({ ...e, source: e.from, target: e.to }));
+
+      const svgSel = d3.select(svgEl);
+      const COLORS = d3.schemeTableau10;
+
+      // Arrowhead marker
+      svgSel.append('defs').append('marker')
+        .attr('id', 'g-arrow').attr('viewBox', '0 -5 10 10')
+        .attr('refX', 30).attr('refY', 0)
+        .attr('markerWidth', 6).attr('markerHeight', 6)
+        .attr('orient', 'auto')
+        .append('path').attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', 'var(--vscode-descriptionForeground, #888)');
+
+      const g = svgSel.append('g');
+
+      // Zoom
+      const zoom = d3.zoom().scaleExtent([0.15, 4])
+        .on('zoom', (ev) => g.attr('transform', ev.transform));
+      graphZoom = zoom;
+      svgSel.call(zoom);
+
+      // Force simulation
+      const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(edges).id((n) => n.id).distance(200))
+        .force('charge', d3.forceManyBody().strength(-500))
+        .force('center', d3.forceCenter(W / 2, H / 2))
+        .force('collision', d3.forceCollide(55));
+      graphSimulation = simulation;
+
+      // Links
+      const link = g.append('g').selectAll('line')
+        .data(edges).join('line')
+        .attr('class', 'g-link').attr('stroke-width', 1.5)
+        .attr('marker-end', 'url(#g-arrow)');
+
+      // Edge labels
+      const linkLabel = g.append('g').selectAll('text')
+        .data(edges).join('text')
+        .attr('class', 'g-label').attr('font-size', 10).attr('text-anchor', 'middle')
+        .text((e) => e.label);
+
+      // Node groups
+      const nodeG = g.append('g').selectAll('g')
+        .data(nodes).join('g').attr('cursor', 'pointer')
+        .call(d3.drag()
+          .on('start', (ev, d) => { if (!ev.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+          .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+          .on('end',   (ev, d) => { if (!ev.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+      nodeG.append('circle').attr('r', 22)
+        .attr('fill', (_, i) => COLORS[i % COLORS.length])
+        .attr('fill-opacity', 0.85)
+        .attr('stroke', 'var(--vscode-editor-background, #1e1e1e)').attr('stroke-width', 2);
+
+      // Short label inside circle
+      nodeG.append('text')
+        .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+        .attr('font-size', 10).attr('fill', '#fff').attr('pointer-events', 'none')
+        .text((n) => n.label.length > 6 ? n.label.slice(0, 5) + '…' : n.label);
+
+      // Full label below circle
+      nodeG.append('text').attr('class', 'g-node-label')
+        .attr('text-anchor', 'middle').attr('dy', 36).attr('font-size', 11)
+        .attr('pointer-events', 'none')
+        .text((n) => n.label);
+
+      simulation.on('tick', () => {
+        link.attr('x1', (e) => e.source.x).attr('y1', (e) => e.source.y)
+            .attr('x2', (e) => e.target.x).attr('y2', (e) => e.target.y);
+        linkLabel.attr('x', (e) => (e.source.x + e.target.x) / 2)
+                 .attr('y', (e) => (e.source.y + e.target.y) / 2 - 5);
+        nodeG.attr('transform', (n) => 'translate(' + n.x + ',' + n.y + ')');
+      });
+    }
 
     function waitForMarkmap(maxMs = 8000) {
       return new Promise((resolve) => {
@@ -463,10 +632,18 @@ export class GlimpsePanelManager {
 
       if (msg.type === 'data') {
         finalizeSteps();
+        currentGraph = msg.graph || null;
+        // Reset to mindmap tab on new analysis
+        activeTab = 'mindmap';
+        document.getElementById('mindmap-pane').style.display = 'flex';
+        document.getElementById('graph-pane').style.display = 'none';
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.dataset.tab === 'mindmap');
+        });
         showOnly(stateMindmap);
         try {
           await renderMindmap(msg.markdown);
-          vscode.setState({ markdown: msg.markdown, modulePath: currentModulePath });
+          vscode.setState({ markdown: msg.markdown, graph: msg.graph, modulePath: currentModulePath });
         } catch (err) {
           showOnly(stateError);
           stateError.textContent = '渲染失败: ' + (err && err.message || String(err));
@@ -477,6 +654,7 @@ export class GlimpsePanelManager {
     const saved = vscode.getState();
     if (saved && saved.markdown) {
       currentModulePath = saved.modulePath || '';
+      currentGraph = saved.graph || null;
       showOnly(stateMindmap);
       renderMindmap(saved.markdown).catch((err) => {
         showOnly(stateError);

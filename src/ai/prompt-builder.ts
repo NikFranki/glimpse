@@ -1,5 +1,5 @@
 import { ModuleSkeleton } from '../analyzer/types';
-import { AIRawOutput, AIRawOutputComponent } from './types';
+import { AIRawOutput, AIRawOutputComponent, AIRawOutputRelation } from './types';
 
 const MAX_FILES = 30;
 const MAX_EXPORTS_PER_FILE = 8;
@@ -33,8 +33,12 @@ export function buildPrompt(skeleton: ModuleSkeleton): string {
     '      ]',
     '    }',
     '  ],',
-    '  "exportDescriptions": { "<导出名>": "一句话描述该导出的功能" }',
+    '  "exportDescriptions": { "<导出名>": "一句话描述该导出的功能" },',
+    '  "featureRelations": [',
+    '    { "from": "功能A名称（与 dataFlow[].feature 完全一致）", "to": "功能B名称", "label": "A→B 的关系，如：通过 taskId 触发、数据来源、状态共享" }',
+    '  ]',
     '}',
+    '注意：featureRelations 只列功能域间有明确数据/事件依赖的边；无关联则返回 []。',
     '',
     '--- 模块骨架 ---',
     `路径: ${skeleton.modulePath}`,
@@ -199,5 +203,16 @@ function validate(data: unknown): AIRawOutput {
         )
       : {};
 
-  return { responsibilities, dataFlow, exportDescriptions };
+  const featureRelations: AIRawOutputRelation[] = Array.isArray(obj['featureRelations'])
+    ? (obj['featureRelations'] as unknown[]).flatMap((r) => {
+        const rel = (typeof r === 'object' && r !== null ? r : {}) as Record<string, unknown>;
+        const from = String(rel['from'] ?? '').trim();
+        const to = String(rel['to'] ?? '').trim();
+        return from && to && from !== to
+          ? [{ from, to, label: String(rel['label'] ?? '') }]
+          : [];
+      })
+    : [];
+
+  return { responsibilities, dataFlow, exportDescriptions, featureRelations };
 }

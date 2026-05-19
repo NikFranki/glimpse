@@ -15,8 +15,15 @@ export interface AIRawOutputComponent {
   behaviors?: string[];
 }
 
+export interface AIRawOutputRelation {
+  from: string;
+  to: string;
+  label: string;
+}
+
 export interface AIRawOutput {
   responsibilities: string[];
   dataFlow: Array<{ feature: string; components: AIRawOutputComponent[] }>;
   exportDescriptions: Record<string, string>;
+  featureRelations?: AIRawOutputRelation[];
 }

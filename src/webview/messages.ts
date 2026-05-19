@@ -1,5 +1,10 @@
 import { ModuleAnalysis } from '../analyzer/types';
 
+export interface FeatureGraphData {
+  nodes: Array<{ id: string; label: string }>;
+  edges: Array<{ from: string; to: string; label: string; source: string }>;
+}
+
 // Extension → Webview
 export type ExtensionToWebviewMessage =
   | { type: 'loading'; modulePath: string }

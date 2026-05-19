@@ -7,12 +7,13 @@ import { detectSkill } from '../ai/detector';
 import { buildPrompt, parseAIOutput } from '../ai/prompt-builder';
 import { getAIProvider, getClaudeModel, getCompanyScopes } from '../config';
 import { ModuleAnalysis, ModuleSkeleton } from '../analyzer/types';
+import { inferFeatureRelations } from '../analyzer/feature-relations';
 
 function staticFallback(skeleton: ModuleSkeleton, reason?: string): ModuleAnalysis {
   const label = reason ? `（AI 失败：${reason}）` : '（仅静态分析，AI 未运行）';
   return {
     ...skeleton,
-    ai: { responsibilities: [label], dataFlow: [] },
+    ai: { responsibilities: [label], dataFlow: [], featureRelations: [] },
     exportDescriptions: {},
   };
 }
@@ -57,11 +58,17 @@ export async function analyzeModuleCommand(
             const rawOutput = await skill.run(prompt);
             const aiOutput = parseAIOutput(rawOutput);
             provider.postMessage({ type: 'progress', step: 'AI 分析完成' });
+            const featureRelations = inferFeatureRelations(
+              skeleton.files,
+              aiOutput.dataFlow,
+              aiOutput.featureRelations ?? []
+            );
             analysis = {
               ...skeleton,
               ai: {
                 responsibilities: aiOutput.responsibilities,
                 dataFlow: aiOutput.dataFlow,
+                featureRelations,
               },
               exportDescriptions: aiOutput.exportDescriptions,
             };

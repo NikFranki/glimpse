@@ -56,9 +56,17 @@ export interface DataFlowFeature {
   components: DataFlowComponent[];
 }
 
+export interface FeatureRelation {
+  from: string;                  // 功能域名（与 dataFlow[].feature 一致）
+  to: string;
+  label: string;                 // 关系描述，如"通过 taskId 触发"
+  source: 'static' | 'ai' | 'merged';
+}
+
 export interface AIOutput {
   responsibilities: string[];    // 职责要点列表，每条独立节点
   dataFlow: DataFlowFeature[];   // 按功能域分组的组件解析
+  featureRelations: FeatureRelation[];  // 功能域间依赖关系（静态推断 + AI 语义）
 }
 
 export interface ModuleAnalysis extends ModuleSkeleton {
